@@ -66,17 +66,14 @@ export default function CoordinatorProjects() {
       const projectsData = projectsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
 
       const updatedProjects = await Promise.all(
-        projectsData.map(async (project) => {
+        projectsData.map(async (project: any) => {
           try {
-            // Fetch tasks for this project
             const tasksQuery = query(collection(db, "tasks"), where("projectId", "==", project.id))
             const tasksSnapshot = await getDocs(tasksQuery)
-            const tasks = tasksSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+            const tasks = tasksSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
 
-            // Calculate progress
             const progress = calculateProjectProgress(tasks as any[])
 
-            // Update project progress in database
             if (progress !== project.progress) {
               await updateDoc(doc(db, "projects", project.id), { progress })
             }
@@ -102,11 +99,11 @@ export default function CoordinatorProjects() {
     try {
       const supervisorsQuery = query(collection(db, "users"), where("role", "==", "supervisor"))
       const supervisorsSnapshot = await getDocs(supervisorsQuery)
-      setSupervisors(supervisorsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
+      setSupervisors(supervisorsSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })))
 
       const studentsQuery = query(collection(db, "users"), where("role", "==", "student"))
       const studentsSnapshot = await getDocs(studentsQuery)
-      setStudents(studentsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
+      setStudents(studentsSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })))
     } catch (error) {
       console.error("Error fetching users:", error)
     }
@@ -125,9 +122,8 @@ export default function CoordinatorProjects() {
         where("role", "==", "student"),
       )
       const studentsSnapshot = await getDocs(studentsQuery)
-      const members = studentsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const members = studentsSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
       setProjectTeamMembers(members)
-      console.log("Loaded team members:", members)
     } catch (error) {
       console.error("Error loading team members:", error)
       toast.error("حدث خطأ في تحميل أعضاء الفريق")
@@ -143,19 +139,16 @@ export default function CoordinatorProjects() {
     try {
       const student = students.find((s) => s.id === selectedStudentToAdd)
 
-      // Check if student already has a project
       if (student?.projectId) {
         toast.error("هذا الطالب لديه مشروع بالفعل")
         return
       }
 
-      // Update student's projectId
       await updateDoc(doc(db, "users", selectedStudentToAdd), {
         projectId: selectedProject.id,
         supervisorId: selectedProject.supervisorId,
       })
 
-      // Update project's teamMembers array
       const currentMembers = selectedProject.teamMembers || []
       await updateDoc(doc(db, "projects", selectedProject.id), {
         teamMembers: [...currentMembers, selectedStudentToAdd],
@@ -176,15 +169,14 @@ export default function CoordinatorProjects() {
     if (!selectedProject) return
 
     try {
-      // Remove projectId from student
       await updateDoc(doc(db, "users", studentId), {
         projectId: null,
         supervisorId: null,
       })
 
-      // Update project's teamMembers array
       const currentMembers = selectedProject.teamMembers || []
       const updatedMembers = currentMembers.filter((id: string) => id !== studentId)
+
       await updateDoc(doc(db, "projects", selectedProject.id), {
         teamMembers: updatedMembers,
         isTeamProject: updatedMembers.length > 1,
@@ -205,7 +197,7 @@ export default function CoordinatorProjects() {
         try {
           const ideaDoc = await getDoc(doc(db, "projectIdeas", createFromIdeaId))
           if (ideaDoc.exists()) {
-            const ideaData = ideaDoc.data()
+            const ideaData: any = ideaDoc.data()
             setNewProject({
               title: ideaData.title || "",
               description: ideaData.description || "",
@@ -229,16 +221,11 @@ export default function CoordinatorProjects() {
     fetchSupervisorsAndStudents()
     fetchDepartments()
     loadApprovedIdea()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createFromIdeaId])
 
   const handleAddProject = async () => {
-    if (
-      !newProject.title ||
-      !newProject.description ||
-      !newProject.supervisorId ||
-      !newProject.department ||
-      !newProject.startDate
-    ) {
+    if (!newProject.title || !newProject.description || !newProject.supervisorId || !newProject.department || !newProject.startDate) {
       toast.error("يرجى ملء جميع الحقول المطلوبة")
       return
     }
@@ -338,7 +325,7 @@ export default function CoordinatorProjects() {
         status: "suspended",
         suspendedAt: Timestamp.now(),
       })
-      toast.success("تم تعليق المشروع")
+      toast.success("تم إيقاف المشروع مؤقتاً")
       fetchProjects()
     } catch (error) {
       console.error("Error suspending project:", error)
@@ -388,10 +375,8 @@ export default function CoordinatorProjects() {
         updateData.startDate = Timestamp.fromDate(new Date(selectedProject.startDate))
       }
 
-      if (selectedProject.endDate) {
-        if (typeof selectedProject.endDate === "string") {
-          updateData.endDate = Timestamp.fromDate(new Date(selectedProject.endDate))
-        }
+      if (selectedProject.endDate && typeof selectedProject.endDate === "string") {
+        updateData.endDate = Timestamp.fromDate(new Date(selectedProject.endDate))
       }
 
       await updateDoc(doc(db, "projects", selectedProject.id), updateData)
@@ -399,7 +384,6 @@ export default function CoordinatorProjects() {
       const teamMembers = selectedProject.teamMembers || []
       const allStudentIds = new Set<string>()
 
-      // جمع كل معرفات الطلاب
       if (selectedProject.studentId && selectedProject.studentId !== "none") {
         allStudentIds.add(selectedProject.studentId)
       }
@@ -407,7 +391,6 @@ export default function CoordinatorProjects() {
         if (memberId) allStudentIds.add(memberId)
       })
 
-      // تحديث كل الطلاب
       if (allStudentIds.size > 0 && selectedProject.supervisorId) {
         const updatePromises = Array.from(allStudentIds).map((studentId: string) =>
           updateDoc(doc(db, "users", studentId), {
@@ -451,12 +434,12 @@ export default function CoordinatorProjects() {
   }
 
   const filteredProjects = filterProjects(projects, searchFilters)
-  const activeProjects = filteredProjects.filter((project) => project.status === "active")
-  const completedProjects = filteredProjects.filter((project) => project.status === "completed")
-  const pendingProjects = filteredProjects.filter((project) => project.status === "pending")
-  const rejectedProjects = filteredProjects.filter((project) => project.status === "rejected")
-  const suspendedProjects = filteredProjects.filter((project) => project.status === "suspended")
-  const archivedProjects = filteredProjects.filter((project) => project.status === "archived")
+  const activeProjects = filteredProjects.filter((p) => p.status === "active")
+  const completedProjects = filteredProjects.filter((p) => p.status === "completed")
+  const pendingProjects = filteredProjects.filter((p) => p.status === "pending")
+  const rejectedProjects = filteredProjects.filter((p) => p.status === "rejected")
+  const suspendedProjects = filteredProjects.filter((p) => p.status === "suspended")
+  const archivedProjects = filteredProjects.filter((p) => p.status === "archived")
 
   const getDepartmentName = (deptValue: any) => {
     if (!deptValue) return "غير معين"
@@ -477,7 +460,6 @@ export default function CoordinatorProjects() {
       const normalized = deptValue.trim().toLowerCase()
       const byCode = departments.find((d) => (d.code || "").trim().toLowerCase() === normalized)
       if (byCode) return byCode.nameAr || byCode.nameEn || byCode.code || "غير معين"
-
       if (deptValue.trim().length > 0) return deptValue
     }
 
@@ -492,6 +474,7 @@ export default function CoordinatorProjects() {
             <CardTitle className="text-lg">{project.title || "مشروع بدون عنوان"}</CardTitle>
             <CardDescription className="mt-2 line-clamp-2">{project.description || "لا يوجد وصف"}</CardDescription>
           </div>
+
           <Badge
             variant={
               project.status === "active"
@@ -514,14 +497,17 @@ export default function CoordinatorProjects() {
                 ? "مكتمل"
                 : project.status === "rejected"
                   ? "مرفوض"
-                  : project.status === "suspended"
-                    ? "معلق"
-                    : project.status === "archived"
-                      ? "مؤرشف"
-                      : "معلق"}
+                  : project.status === "pending"
+                    ? "بانتظار الموافقة"
+                    : project.status === "suspended"
+                      ? "موقوف"
+                      : project.status === "archived"
+                        ? "مؤرشف"
+                        : "غير معروف"}
           </Badge>
         </div>
       </CardHeader>
+
       <CardContent className="space-y-4">
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -535,23 +521,29 @@ export default function CoordinatorProjects() {
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">تاريخ البدء:</span>
             <span>
-              {project.startDate ? new Date(project.startDate.seconds * 1000).toLocaleDateString("ar-EG") : "غير معين"}
+              {project.startDate
+                ? new Date(project.startDate.seconds * 1000).toLocaleDateString("ar-EG")
+                : "غير معين"}
             </span>
           </div>
+
           {project.endDate && (
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">تاريخ الانتهاء:</span>
               <span>{new Date(project.endDate.seconds * 1000).toLocaleDateString("ar-EG")}</span>
             </div>
           )}
+
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">المشرف:</span>
             <span>{project.supervisorName || "غير معين"}</span>
           </div>
+
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">القسم:</span>
             <span>{getDepartmentName(project.department)}</span>
           </div>
+
           {project.studentName && (
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">الطالب:</span>
@@ -584,12 +576,14 @@ export default function CoordinatorProjects() {
                     <h4 className="font-semibold mb-2">الوصف:</h4>
                     <p className="text-sm text-muted-foreground">{selectedProject?.description}</p>
                   </div>
+
                   {selectedProject?.objectives && (
                     <div>
                       <h4 className="font-semibold mb-2">الأهداف:</h4>
                       <p className="text-sm text-muted-foreground">{selectedProject.objectives}</p>
                     </div>
                   )}
+
                   <div className="flex gap-2 pt-4">
                     <Button onClick={() => handleApproveProject(selectedProject?.id)} className="flex-1 rounded-lg">
                       <Check className="w-4 h-4 ml-2" />
@@ -607,16 +601,13 @@ export default function CoordinatorProjects() {
                 </div>
               </DialogContent>
             </Dialog>
+
             <Button size="sm" onClick={() => handleApproveProject(project.id)} className="flex-1 rounded-lg">
               <Check className="w-4 h-4 ml-2" />
               قبول
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="rounded-lg"
-              onClick={() => handleRejectProject(project.id)}
-            >
+
+            <Button variant="destructive" size="sm" className="rounded-lg" onClick={() => handleRejectProject(project.id)}>
               <X className="w-4 h-4 ml-2" />
               رفض
             </Button>
@@ -637,6 +628,7 @@ export default function CoordinatorProjects() {
               <Edit className="w-4 h-4 ml-2" />
               تعديل
             </Button>
+
             <Button
               variant="outline"
               size="sm"
@@ -650,6 +642,7 @@ export default function CoordinatorProjects() {
               <Users className="w-4 h-4 ml-2" />
               إدارة الفريق
             </Button>
+
             {project.status === "active" && (
               <Button
                 variant="outline"
@@ -658,9 +651,10 @@ export default function CoordinatorProjects() {
                 onClick={() => handleSuspendProject(project.id)}
               >
                 <Pause className="w-4 h-4 ml-2" />
-                تعليق
+                إيقاف مؤقت
               </Button>
             )}
+
             {project.status === "suspended" && (
               <Button
                 variant="outline"
@@ -672,6 +666,7 @@ export default function CoordinatorProjects() {
                 تفعيل
               </Button>
             )}
+
             <Button
               variant="outline"
               size="sm"
@@ -681,6 +676,7 @@ export default function CoordinatorProjects() {
               <ArchiveIcon className="w-4 h-4 ml-2" />
               أرشفة
             </Button>
+
             <Button
               variant="destructive"
               size="sm"
@@ -706,6 +702,7 @@ export default function CoordinatorProjects() {
             <h1 className="text-3xl font-bold">جميع المشاريع</h1>
             <p className="text-muted-foreground mt-2">إدارة ومتابعة جميع مشاريع التخرج</p>
           </div>
+
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button className="rounded-lg">
@@ -713,11 +710,13 @@ export default function CoordinatorProjects() {
                 إضافة مشروع
               </Button>
             </DialogTrigger>
+
             <DialogContent className="max-w-2xl rounded-xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>إضافة مشروع جديد</DialogTitle>
                 <DialogDescription>أدخل بيانات المشروع وقم بتعيين المشرف والطالب</DialogDescription>
               </DialogHeader>
+
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="title">عنوان المشروع *</Label>
@@ -729,6 +728,7 @@ export default function CoordinatorProjects() {
                     className="rounded-lg"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="description">وصف المشروع *</Label>
                   <Textarea
@@ -740,6 +740,7 @@ export default function CoordinatorProjects() {
                     className="rounded-lg"
                   />
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="startDate">تاريخ بداية المشروع *</Label>
@@ -763,13 +764,11 @@ export default function CoordinatorProjects() {
                     />
                   </div>
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="supervisor">المشرف *</Label>
-                    <Select
-                      value={newProject.supervisorId}
-                      onValueChange={(value) => setNewProject({ ...newProject, supervisorId: value })}
-                    >
+                    <Select value={newProject.supervisorId} onValueChange={(value) => setNewProject({ ...newProject, supervisorId: value })}>
                       <SelectTrigger className="rounded-lg">
                         <SelectValue placeholder="اختر المشرف" />
                       </SelectTrigger>
@@ -782,12 +781,10 @@ export default function CoordinatorProjects() {
                       </SelectContent>
                     </Select>
                   </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="student">الطالب (اختياري)</Label>
-                    <Select
-                      value={newProject.studentId}
-                      onValueChange={(value) => setNewProject({ ...newProject, studentId: value })}
-                    >
+                    <Select value={newProject.studentId} onValueChange={(value) => setNewProject({ ...newProject, studentId: value })}>
                       <SelectTrigger className="rounded-lg">
                         <SelectValue placeholder="اختر الطالب" />
                       </SelectTrigger>
@@ -802,12 +799,10 @@ export default function CoordinatorProjects() {
                     </Select>
                   </div>
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="department">القسم *</Label>
-                  <Select
-                    value={newProject.department}
-                    onValueChange={(value) => setNewProject({ ...newProject, department: value })}
-                  >
+                  <Select value={newProject.department} onValueChange={(value) => setNewProject({ ...newProject, department: value })}>
                     <SelectTrigger className="rounded-lg">
                       <SelectValue placeholder="اختر القسم" />
                     </SelectTrigger>
@@ -821,6 +816,7 @@ export default function CoordinatorProjects() {
                   </Select>
                 </div>
               </div>
+
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} className="rounded-lg">
                   إلغاء
@@ -846,10 +842,10 @@ export default function CoordinatorProjects() {
           departments={departments.map((dept) => dept.nameAr)}
           statusOptions={[
             { value: "active", label: "نشط" },
-            { value: "pending", label: "معلق" },
+            { value: "pending", label: "بانتظار الموافقة" }, // ✅ FIX
             { value: "completed", label: "مكتمل" },
             { value: "rejected", label: "مرفوض" },
-            { value: "suspended", label: "معلق" },
+            { value: "suspended", label: "موقوف" }, // ✅ FIX
             { value: "archived", label: "مؤرشف" },
           ]}
           placeholder="ابحث في المشاريع..."
@@ -883,26 +879,32 @@ export default function CoordinatorProjects() {
               <TabsTrigger value="all" className="rounded-lg">
                 الكل ({filteredProjects.length})
               </TabsTrigger>
+
               <TabsTrigger value="pending" className="rounded-lg">
-                معلقة ({pendingProjects.length})
+                بانتظار الموافقة ({pendingProjects.length}) {/* ✅ FIX */}
                 {pendingProjects.length > 0 && (
                   <Badge variant="destructive" className="mr-2 h-5 w-5 rounded-full p-0 text-xs">
                     {pendingProjects.length}
                   </Badge>
                 )}
               </TabsTrigger>
+
               <TabsTrigger value="active" className="rounded-lg">
                 نشطة ({activeProjects.length})
               </TabsTrigger>
+
               <TabsTrigger value="completed" className="rounded-lg">
                 مكتملة ({completedProjects.length})
               </TabsTrigger>
+
               <TabsTrigger value="rejected" className="rounded-lg">
                 مرفوضة ({rejectedProjects.length})
               </TabsTrigger>
+
               <TabsTrigger value="suspended" className="rounded-lg">
-                معلقة ({suspendedProjects.length})
+                موقوفة ({suspendedProjects.length}) {/* ✅ FIX */}
               </TabsTrigger>
+
               <TabsTrigger value="archived" className="rounded-lg">
                 مؤرشفة ({archivedProjects.length})
               </TabsTrigger>
@@ -916,7 +918,7 @@ export default function CoordinatorProjects() {
 
             <TabsContent value="pending" className="grid gap-6 md:grid-cols-2">
               {pendingProjects.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8 col-span-2">لا توجد مشاريع معلقة</p>
+                <p className="text-center text-muted-foreground py-8 col-span-2">لا توجد مشاريع بانتظار الموافقة</p>
               ) : (
                 pendingProjects.map((project) => <ProjectCard key={project.id} project={project} />)
               )}
@@ -948,7 +950,7 @@ export default function CoordinatorProjects() {
 
             <TabsContent value="suspended" className="grid gap-6 md:grid-cols-2">
               {suspendedProjects.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8 col-span-2">لا توجد مشاريع معلقة</p>
+                <p className="text-center text-muted-foreground py-8 col-span-2">لا توجد مشاريع موقوفة</p>
               ) : (
                 suspendedProjects.map((project) => <ProjectCard key={project.id} project={project} />)
               )}
@@ -964,14 +966,15 @@ export default function CoordinatorProjects() {
           </Tabs>
         )}
 
+        {/* Team Management Dialog */}
         <Dialog open={isTeamManagementOpen} onOpenChange={setIsTeamManagementOpen}>
           <DialogContent className="max-w-2xl rounded-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>إدارة فريق المشروع</DialogTitle>
               <DialogDescription>إضافة أو حذف طلاب من المشروع: {selectedProject?.title}</DialogDescription>
             </DialogHeader>
+
             <div className="space-y-6">
-              {/* Add Student Section */}
               <div className="space-y-4">
                 <h4 className="font-semibold">إضافة طالب جديد</h4>
                 <div className="flex gap-2">
@@ -996,7 +999,6 @@ export default function CoordinatorProjects() {
                 </div>
               </div>
 
-              {/* Current Team Members */}
               <div className="space-y-4">
                 <h4 className="font-semibold">أعضاء الفريق الحاليون ({projectTeamMembers.length})</h4>
                 {projectTeamMembers.length === 0 ? (
@@ -1004,10 +1006,7 @@ export default function CoordinatorProjects() {
                 ) : (
                   <div className="space-y-2">
                     {projectTeamMembers.map((member) => (
-                      <div
-                        key={member.id}
-                        className="flex items-center justify-between p-3 border rounded-lg bg-muted/50"
-                      >
+                      <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
                         <div>
                           <p className="font-medium">{member.name}</p>
                           <p className="text-sm text-muted-foreground">{member.email}</p>
@@ -1027,6 +1026,7 @@ export default function CoordinatorProjects() {
                 )}
               </div>
             </div>
+
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsTeamManagementOpen(false)} className="rounded-lg">
                 إغلاق
@@ -1035,12 +1035,14 @@ export default function CoordinatorProjects() {
           </DialogContent>
         </Dialog>
 
+        {/* Edit Dialog */}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
           <DialogContent className="max-w-2xl rounded-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>تعديل المشروع</DialogTitle>
               <DialogDescription>قم بتحديث بيانات المشروع</DialogDescription>
             </DialogHeader>
+
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-title">عنوان المشروع *</Label>
@@ -1052,6 +1054,7 @@ export default function CoordinatorProjects() {
                   className="rounded-lg"
                 />
               </div>
+
               <div className="space-y-2">
                 <Label htmlFor="edit-description">وصف المشروع *</Label>
                 <Textarea
@@ -1063,6 +1066,7 @@ export default function CoordinatorProjects() {
                   className="rounded-lg"
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-startDate">تاريخ بداية المشروع</Label>
@@ -1080,6 +1084,7 @@ export default function CoordinatorProjects() {
                     className="rounded-lg"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="edit-endDate">تاريخ انتهاء المشروع</Label>
                   <Input
@@ -1097,6 +1102,7 @@ export default function CoordinatorProjects() {
                   />
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-supervisor">المشرف *</Label>
@@ -1116,6 +1122,7 @@ export default function CoordinatorProjects() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="edit-student">الطالب (اختياري)</Label>
                   <Select
@@ -1136,6 +1143,7 @@ export default function CoordinatorProjects() {
                   </Select>
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label htmlFor="edit-department">القسم *</Label>
                 <Select
@@ -1155,6 +1163,7 @@ export default function CoordinatorProjects() {
                 </Select>
               </div>
             </div>
+
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} className="rounded-lg">
                 إلغاء
@@ -1166,6 +1175,7 @@ export default function CoordinatorProjects() {
           </DialogContent>
         </Dialog>
 
+        {/* Delete Dialog */}
         <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
           <DialogContent className="rounded-xl">
             <DialogHeader>

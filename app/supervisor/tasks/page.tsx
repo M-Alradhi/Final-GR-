@@ -67,7 +67,6 @@ interface Task {
   gradedAt?: any
   gradedBy?: string
   createdAt: any
-  // Added supervisorFiles field
   supervisorFiles?: SubmittedFile[]
 }
 
@@ -76,7 +75,7 @@ function normalizeKeyPart(v: unknown) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ")
-    .replace(/[^\w\- ]+/g, "") // remove weird symbols
+    .replace(/[^\w\- ]+/g, "")
     .replace(/\s/g, "_")
 }
 
@@ -91,7 +90,6 @@ export default function SupervisorTasks() {
   const [gradeDialogOpen, setGradeDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
 
-  // ✅ NEW: prevent double submit
   const [submittingTask, setSubmittingTask] = useState(false)
 
   const [taskForm, setTaskForm] = useState({
@@ -110,15 +108,21 @@ export default function SupervisorTasks() {
     feedback: "",
   })
 
+  
   const [supervisorFiles, setSupervisorFiles] = useState<File[]>([])
   const [uploadedSupervisorFiles, setUploadedSupervisorFiles] = useState<SubmittedFile[]>([])
   const [uploadingFiles, setUploadingFiles] = useState(false)
+
+ 
+  const [createSupervisorFiles, setCreateSupervisorFiles] = useState<File[]>([])
+  const [createUploadedSupervisorFiles, setCreateUploadedSupervisorFiles] = useState<SubmittedFile[]>([])
+  const [createUploadingFiles, setCreateUploadingFiles] = useState(false)
 
   useEffect(() => {
     if (!authLoading && userData) {
       fetchData()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [userData, authLoading])
 
   const fetchData = async () => {
@@ -128,7 +132,6 @@ export default function SupervisorTasks() {
       setLoading(true)
       const db = getFirebaseDb()
 
-      // Projects
       const projectsQuery = query(collection(db, "projects"), where("supervisorId", "==", userData.uid))
       const projectsSnapshot = await getDocs(projectsQuery)
       const projectsMap = new Map()
@@ -149,7 +152,6 @@ export default function SupervisorTasks() {
         }
       })
 
-      // Users
       const usersQuery = query(collection(db, "users"))
       const usersSnapshot = await getDocs(usersQuery)
       const usersMap = new Map()
@@ -158,7 +160,6 @@ export default function SupervisorTasks() {
         usersMap.set(d.id, { id: d.id, ...d.data() })
       })
 
-      // Students (unique)
       const studentsData: Student[] = []
       const processedStudents = new Set<string>()
 
@@ -183,7 +184,6 @@ export default function SupervisorTasks() {
 
       setStudents(studentsData)
 
-      // Tasks
       const tasksQuery = query(
         collection(db, "tasks"),
         where("supervisorId", "==", userData.uid),
@@ -200,10 +200,70 @@ export default function SupervisorTasks() {
     }
   }
 
+ 
+  const handleCreateSupervisorFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files)
+      setCreateSupervisorFiles((prev) => [...prev, ...files])
+    }
+  }
+
+  const removeCreateSupervisorFile = (index: number) => {
+    setCreateSupervisorFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const removeCreateUploadedSupervisorFile = (index: number) => {
+    setCreateUploadedSupervisorFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleUploadCreateSupervisorFiles = async () => {
+    if (createSupervisorFiles.length === 0) return
+
+    setCreateUploadingFiles(true)
+    try {
+      const uploadedFiles: SubmittedFile[] = []
+
+      for (const file of createSupervisorFiles) {
+        if (isImageFile(file)) {
+          const result = await uploadToImgBB(file)
+          uploadedFiles.push({
+            name: file.name,
+            url: result.url,
+            size: file.size,
+            type: file.type,
+            isImage: true,
+          })
+        } else {
+          const reader = new FileReader()
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string)
+            reader.onerror = reject
+            reader.readAsDataURL(file)
+          })
+          uploadedFiles.push({
+            name: file.name,
+            url: dataUrl,
+            size: file.size,
+            type: file.type,
+            isImage: false,
+          })
+        }
+      }
+
+      setCreateUploadedSupervisorFiles((prev) => [...prev, ...uploadedFiles])
+      setCreateSupervisorFiles([])
+      toast.success(`تم رفع ${uploadedFiles.length} ملف للمهمة`)
+    } catch (error) {
+      console.error("Error uploading create files:", error)
+      toast.error("حدث خطأ أثناء رفع ملفات المهمة")
+    } finally {
+      setCreateUploadingFiles(false)
+    }
+  }
+
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    // ✅ NEW: lock to stop double submit
     if (submittingTask) return
     setSubmittingTask(true)
 
@@ -259,11 +319,8 @@ export default function SupervisorTasks() {
         targetStudents = [student]
       }
 
-      // ✅ stable due date
       const dueAt = Timestamp.fromDate(new Date(`${taskForm.dueDate}T23:59:59`))
 
-      // ✅ IMPORTANT: idempotent write (no duplicates)
-      // Use deterministic document ID per (supervisor + student + title + dueDate + project)
       const writePromises = targetStudents.map((student) => {
         const stableId = [
           "task",
@@ -288,15 +345,16 @@ export default function SupervisorTasks() {
           dueDate: dueAt,
           status: "pending" as const,
           createdAt: Timestamp.now(),
+
+        
+          supervisorFiles: createUploadedSupervisorFiles.length > 0 ? createUploadedSupervisorFiles : null,
         }
 
-        // setDoc with merge keeps it safe if you later add fields
         return setDoc(taskRef, taskData, { merge: false })
       })
 
       await Promise.all(writePromises)
 
-      // Notifications
       const notificationPromises = targetStudents.map((student) =>
         createNotification({
           userId: student.id,
@@ -324,12 +382,16 @@ export default function SupervisorTasks() {
         assignToAllMembers: false,
       })
 
+      // ✅ reset create attachments
+      setCreateSupervisorFiles([])
+      setCreateUploadedSupervisorFiles([])
+      setCreateUploadingFiles(false)
+
       await fetchData()
     } catch (error) {
       console.error("Error creating task:", error)
       toast.error("حدث خطأ أثناء إضافة المهمة")
     } finally {
-      // ✅ release lock
       setSubmittingTask(false)
     }
   }
@@ -368,7 +430,10 @@ export default function SupervisorTasks() {
           status: "graded",
           gradedAt: Timestamp.now(),
           gradedBy: userData?.uid,
-          supervisorFiles: uploadedSupervisorFiles.length > 0 ? uploadedSupervisorFiles : null,
+
+          // ✅ keep existing task resources (supervisorFiles) as-is
+          // ✅ these uploadedSupervisorFiles here are grading attachments (feedback files)
+          gradingFiles: uploadedSupervisorFiles.length > 0 ? uploadedSupervisorFiles : null,
         }),
       )
 
@@ -405,7 +470,8 @@ export default function SupervisorTasks() {
       grade: task.grade?.toString() || "",
       feedback: task.feedback || "",
     })
-    setUploadedSupervisorFiles((task as any).supervisorFiles || [])
+    // grading files (optional)
+    setUploadedSupervisorFiles(((task as any).gradingFiles as SubmittedFile[]) || [])
     setSupervisorFiles([])
     setGradeDialogOpen(true)
   }
@@ -443,7 +509,6 @@ export default function SupervisorTasks() {
             isImage: true,
           })
         } else {
-          // For non-image files, convert to base64 data URL
           const reader = new FileReader()
           const dataUrl = await new Promise<string>((resolve, reject) => {
             reader.onload = () => resolve(reader.result as string)
@@ -564,7 +629,18 @@ export default function SupervisorTasks() {
             <p className="text-muted-foreground mt-2">إنشاء المهام وتقييم الطلاب بنظام متكامل من 100</p>
           </div>
 
-          <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
+          <Dialog
+            open={taskDialogOpen}
+            onOpenChange={(open) => {
+              setTaskDialogOpen(open)
+              if (!open) {
+                // reset create attachments if dialog closes
+                setCreateSupervisorFiles([])
+                setCreateUploadedSupervisorFiles([])
+                setCreateUploadingFiles(false)
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button className="gap-2 shadow-lg">
                 <Plus className="w-4 h-4" />
@@ -707,18 +783,117 @@ export default function SupervisorTasks() {
                   </div>
                 </div>
 
+                {/* ✅ NEW: Supervisor attachments for task */}
+                <div className="space-y-3 pt-2">
+                  <Label className="text-base flex items-center gap-2">
+                    <Upload className="w-4 h-4" />
+                    ملفات للمهمة 
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    ارفع ملفات المهمة (PDF / Word / صور / إلخ) 
+                  </p>
+
+                  {createUploadedSupervisorFiles.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm text-muted-foreground">ملفات مرفوعة:</Label>
+                      {createUploadedSupervisorFiles.map((file, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center gap-3 p-2 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-900"
+                        >
+                          <div className="p-1.5 bg-green-100 dark:bg-green-900/30 rounded">
+                            {file.isImage ? (
+                              <ImageIcon className="w-4 h-4 text-green-600" />
+                            ) : (
+                              <File className="w-4 h-4 text-green-600" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{file.name}</p>
+                            <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeCreateUploadedSupervisorFile(index)}
+                            className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {createSupervisorFiles.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm text-muted-foreground">ملفات جاهزة للرفع:</Label>
+                      {createSupervisorFiles.map((file, index) => (
+                        <div key={index} className="flex items-center gap-3 p-2 bg-muted/50 rounded-lg border">
+                          <div className="p-1.5 bg-muted rounded">
+                            {isImageFile(file) ? (
+                              <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                            ) : (
+                              <File className="w-4 h-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{file.name}</p>
+                            <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeCreateSupervisorFile(index)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleUploadCreateSupervisorFiles}
+                        disabled={createUploadingFiles}
+                        className="w-full bg-transparent"
+                      >
+                        {createUploadingFiles ? "جاري الرفع..." : `رفع ${createSupervisorFiles.length} ملف`}
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary/50 transition-colors">
+                    <input
+                      type="file"
+                      multiple
+                      onChange={handleCreateSupervisorFileSelect}
+                      className="hidden"
+                      id="create-supervisor-file-upload"
+                      disabled={createUploadingFiles}
+                    />
+                    <label htmlFor="create-supervisor-file-upload" className="cursor-pointer">
+                      <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground">اسحب الملفات هنا أو انقر للاختيار</p>
+                    </label>
+                  </div>
+                </div>
+
                 <div className="flex gap-2 justify-end">
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => setTaskDialogOpen(false)}
-                    disabled={submittingTask}
+                    disabled={submittingTask || createUploadingFiles}
                   >
                     إلغاء
                   </Button>
 
-                  {/* ✅ NEW: disabled while submitting */}
-                  <Button type="submit" disabled={submittingTask}>
+                  <Button type="submit" disabled={submittingTask || createUploadingFiles}>
                     {submittingTask ? "جارٍ الإضافة..." : "إضافة المهمة"}
                   </Button>
                 </div>
@@ -1152,11 +1327,10 @@ export default function SupervisorTasks() {
                       <div className="space-y-3">
                         <Label className="text-base flex items-center gap-2">
                           <Upload className="w-4 h-4" />
-                          إرفاق ملفات (اختياري)
+                          إرفاق ملفات للتقييم (اختياري)
                         </Label>
                         <p className="text-xs text-muted-foreground">يمكنك إرفاق ملفات التصحيح أو الملاحظات للطالب</p>
 
-                        {/* Uploaded files display */}
                         {uploadedSupervisorFiles.length > 0 && (
                           <div className="space-y-2">
                             <Label className="text-sm text-muted-foreground">الملفات المرفقة:</Label>
@@ -1190,7 +1364,6 @@ export default function SupervisorTasks() {
                           </div>
                         )}
 
-                        {/* Selected files waiting for upload */}
                         {supervisorFiles.length > 0 && (
                           <div className="space-y-2">
                             <Label className="text-sm text-muted-foreground">ملفات جاهزة للرفع:</Label>
@@ -1231,7 +1404,6 @@ export default function SupervisorTasks() {
                           </div>
                         )}
 
-                        {/* File input */}
                         <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary/50 transition-colors">
                           <input
                             type="file"

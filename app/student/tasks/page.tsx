@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Upload, AlertCircle, Download, FileIcon, ImageIcon, CheckSquare } from "lucide-react"
+import { Upload, AlertCircle, Download, FileIcon, ImageIcon, CheckSquare, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -36,6 +36,9 @@ interface Task extends TaskGrade {
   supervisorId: string
   createdAt: any
   projectId?: string
+
+  // ✅ NEW: task resources uploaded by supervisor (student can view/download)
+  supervisorFiles?: SubmittedFile[]
 }
 
 export default function StudentTasks() {
@@ -67,8 +70,6 @@ export default function StudentTasks() {
 
         const db = getFirebaseDb()
 
-        console.log("Fetching tasks for student:", userData.uid)
-
         const tasksQuery = query(
           collection(db, "tasks"),
           where("studentId", "==", userData.uid),
@@ -76,8 +77,6 @@ export default function StudentTasks() {
         )
         const tasksSnapshot = await getDocs(tasksQuery)
         const tasksData = tasksSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Task[]
-
-        console.log(`Found ${tasksData.length} tasks for student`)
 
         setTasks(tasksData)
       } catch (error) {
@@ -104,8 +103,6 @@ export default function StudentTasks() {
     try {
       const db = getFirebaseDb()
 
-      console.log("Submitting team task:", selectedTask.title, "for project:", selectedTask.projectId)
-
       const teamTasksQuery = query(
         collection(db, "tasks"),
         where("projectId", "==", selectedTask.projectId),
@@ -113,16 +110,13 @@ export default function StudentTasks() {
       )
       const teamTasksSnapshot = await getDocs(teamTasksQuery)
 
-      console.log(`Found ${teamTasksSnapshot.docs.length} team tasks to submit`)
-
       const updatePromises = teamTasksSnapshot.docs.map((taskDoc) => {
-        console.log(`Submitting task for student: ${taskDoc.data().studentName}`)
         return updateDoc(doc(db, "tasks", taskDoc.id), {
           status: "submitted",
           submissionText: submissionForm.text,
           submittedFiles: submissionForm.files,
           submittedAt: Timestamp.now(),
-          submittedBy: userData?.uid, // Track who submitted
+          submittedBy: userData?.uid,
         })
       })
 
@@ -134,7 +128,7 @@ export default function StudentTasks() {
           title: t("newTaskAssigned"),
           message: `${userData?.name || t("student")} ${t("taskSubmitted")}: ${selectedTask.title}`,
           type: "task",
-          link: "/supervisor/tasks", // Added link to supervisor tasks page
+          link: "/supervisor/tasks",
         })
       }
 
@@ -143,7 +137,6 @@ export default function StudentTasks() {
       setSelectedTask(null)
       setSubmissionForm({ text: "", files: [] })
 
-      console.log("Refreshing tasks after submission")
       const tasksQuery = query(
         collection(db, "tasks"),
         where("studentId", "==", userData?.uid),
@@ -195,9 +188,9 @@ export default function StudentTasks() {
             )}
           </div>
         </CardHeader>
+
         <CardContent>
           <div className="space-y-4">
-            {/* Task Info */}
             <div className="flex items-center justify-between text-sm bg-muted/50 rounded-lg p-3">
               <div className="flex items-center gap-4 text-muted-foreground">
                 <span className="font-medium">
@@ -213,7 +206,41 @@ export default function StudentTasks() {
               </div>
             </div>
 
-            {/* Graded Feedback */}
+            {/* ✅ NEW: Supervisor task resources */}
+            {task.supervisorFiles && task.supervisorFiles.length > 0 && (
+              <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-900 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                    ملفات المشرف للمهمة
+                  </Label>
+                  <Badge variant="secondary" className="text-xs">
+                    {task.supervisorFiles.length}
+                  </Badge>
+                </div>
+
+                <div className="space-y-2">
+                  {task.supervisorFiles.map((file, index) => (
+                    <a
+                      key={index}
+                      href={file.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2 bg-white dark:bg-gray-900 rounded border hover:border-amber-400 transition-colors group"
+                    >
+                      {file.isImage ? (
+                        <ImageIcon className="w-4 h-4 text-amber-600" />
+                      ) : (
+                        <FileIcon className="w-4 h-4 text-muted-foreground" />
+                      )}
+                      <span className="text-sm flex-1 truncate group-hover:text-amber-700">{file.name}</span>
+                      <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-amber-700" />
+                      <Download className="w-4 h-4 text-muted-foreground group-hover:text-amber-700" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {task.status === "graded" && task.feedback && (
               <div className="p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-900">
                 <Label className="text-sm font-semibold mb-2 block text-green-700 dark:text-green-400">
@@ -226,7 +253,6 @@ export default function StudentTasks() {
               </div>
             )}
 
-            {/* Submitted Info */}
             {(task.status === "submitted" || task.status === "graded") && (
               <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-900 space-y-3">
                 <div className="flex items-center justify-between">
@@ -266,7 +292,6 @@ export default function StudentTasks() {
               </div>
             )}
 
-            {/* Action Buttons */}
             <div className="flex gap-2">
               {task.status === "pending" && (
                 <Button onClick={() => openSubmitDialog(task)} className="gap-2 flex-1" size="lg">
@@ -289,7 +314,6 @@ export default function StudentTasks() {
   return (
     <DashboardLayout sidebarItems={studentSidebarItems} requiredRole="student">
       <div className="p-6 md:p-8 space-y-8 animate-in fade-in duration-500">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-3">
@@ -341,7 +365,6 @@ export default function StudentTasks() {
           <div className="space-y-8">
             <GradeOverviewCard tasks={tasks} />
 
-            {/* Tasks Tabs */}
             <Tabs defaultValue="all" className="space-y-6">
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="all" className="gap-2">
@@ -433,7 +456,6 @@ export default function StudentTasks() {
           </div>
         )}
 
-        {/* Submit Dialog */}
         <Dialog open={submitDialogOpen} onOpenChange={setSubmitDialogOpen}>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
