@@ -10,45 +10,41 @@ import { useEffect, useMemo, useState } from "react"
 import { collection, getDocs, query, where, addDoc, Timestamp, orderBy } from "firebase/firestore"
 import { db } from "@/lib/firebase/config"
 import { toast } from "sonner"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { useAuth } from "@/lib/contexts/auth-context"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+type AnyDoc = Record<string, any>
+
 export default function SupervisorProjectIdeas() {
-  const [allMyIdeas, setAllMyIdeas] = useState<any[]>([])
+  const [allMyIdeas, setAllMyIdeas] = useState<AnyDoc[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedProject, setSelectedProject] = useState<any>(null)
+  const [selectedProject, setSelectedProject] = useState<AnyDoc | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const { userData } = useAuth()
 
+  const [departments, setDepartments] = useState<AnyDoc[]>([])
+
+  // ✅ خزّنا departmentId بدل كتابة نص
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     objectives: "",
     technologies: "",
     projectType: "",
-    department: "",
+    departmentId: "", // ✅ doc id
   })
-
-  const [departments, setDepartments] = useState<any[]>([])
 
   const fetchDepartments = async () => {
     try {
-      const departmentsQuery = query(collection(db, "departments"))
+      const departmentsQuery = query(collection(db, "departments"), where("isActive", "==", true))
       const departmentsSnapshot = await getDocs(departmentsQuery)
-      const departmentsData = departmentsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const departmentsData = departmentsSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
       setDepartments(departmentsData)
     } catch (error) {
       console.error("Error fetching departments:", error)
@@ -56,7 +52,7 @@ export default function SupervisorProjectIdeas() {
     }
   }
 
-  // ✅ مهم: جيب كل أفكار المشرف (بدون فلترة status)
+  // ✅ جيب كل أفكار المشرف (بدون فلترة status)
   const fetchProjectIdeas = async () => {
     if (!userData?.uid) return
     try {
@@ -69,8 +65,7 @@ export default function SupervisorProjectIdeas() {
       )
 
       const ideasSnapshot = await getDocs(ideasQuery)
-      const ideasData = ideasSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-
+      const ideasData = ideasSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
       setAllMyIdeas(ideasData)
     } catch (error) {
       console.error("Error fetching project ideas:", error)
@@ -89,37 +84,38 @@ export default function SupervisorProjectIdeas() {
   }, [userData?.uid])
 
   const handleSubmitIdea = async () => {
-    if (
-      !formData.title ||
-      !formData.description ||
-      !formData.objectives ||
-      !formData.technologies ||
-      !formData.projectType ||
-      !formData.department
-    ) {
+    if (!formData.title || !formData.description || !formData.objectives || !formData.technologies || !formData.projectType || !formData.departmentId) {
       toast.error("يرجى ملء جميع الحقول المطلوبة")
+      return
+    }
+
+    const dep = departments.find((d) => d.id === formData.departmentId)
+    if (!dep) {
+      toast.error("يرجى اختيار قسم صحيح")
       return
     }
 
     try {
       setIsSubmitting(true)
 
-      const objectivesArray = formData.objectives.split("\n").filter((obj) => obj.trim())
-      const technologiesArray = formData.technologies
-        .split(",")
-        .map((tech) => tech.trim())
-        .filter((tech) => tech)
+      const objectivesArray = formData.objectives.split("\n").map((x) => x.trim()).filter(Boolean)
+      const technologiesArray = formData.technologies.split(",").map((x) => x.trim()).filter(Boolean)
 
+      // ✅ نخزن معلومات القسم صح
       await addDoc(collection(db, "projectIdeas"), {
         title: formData.title,
         description: formData.description,
         objectives: objectivesArray,
         technologies: technologiesArray,
         projectType: formData.projectType,
-        department: formData.department,
+
+        departmentId: dep.id,
+        departmentCode: dep.code ?? dep.departmentCode ?? "",
+        departmentNameAr: dep.nameAr ?? dep.name ?? "",
+        departmentNameEn: dep.nameEn ?? "",
 
         proposedBySupervisor: userData?.uid,
-        supervisorId: userData?.uid, // ✅ خله موجود للتوافق مع الكود القديم
+        supervisorId: userData?.uid,
         supervisorName: userData?.name,
         supervisorEmail: userData?.email,
 
@@ -136,7 +132,7 @@ export default function SupervisorProjectIdeas() {
         objectives: "",
         technologies: "",
         projectType: "",
-        department: "",
+        departmentId: "",
       })
 
       await fetchProjectIdeas()
@@ -148,7 +144,6 @@ export default function SupervisorProjectIdeas() {
     }
   }
 
-  // ✅ تقسيم الأفكار حسب الحالة
   const stats = useMemo(() => {
     const total = allMyIdeas.length
     const available = allMyIdeas.filter((i) => i.status === "available").length
@@ -175,8 +170,7 @@ export default function SupervisorProjectIdeas() {
     }
   }
 
-  const getTakenInfo = (project: any) => {
-    // ✅ دعم الشكل الجديد
+  const getTakenInfo = (project: AnyDoc) => {
     if (project.takenById || project.takenByName || project.takenByEmail) {
       return {
         name: project.takenByName || "غير معروف",
@@ -184,8 +178,6 @@ export default function SupervisorProjectIdeas() {
         at: project.takenAt?.toDate?.() ? project.takenAt.toDate() : null,
       }
     }
-
-    // ✅ دعم الشكل القديم (selectedBy array)
     if (Array.isArray(project.selectedBy) && project.selectedBy.length > 0) {
       const first = project.selectedBy[0]
       return {
@@ -194,16 +186,9 @@ export default function SupervisorProjectIdeas() {
         at: first.selectedAt?.toDate?.() ? first.selectedAt.toDate() : null,
       }
     }
-
-    // ✅ دعم حقول قديمة جدا لو موجودة
     if (project.studentName || project.studentEmail) {
-      return {
-        name: project.studentName || "غير معروف",
-        email: project.studentEmail || "",
-        at: null,
-      }
+      return { name: project.studentName || "غير معروف", email: project.studentEmail || "", at: null }
     }
-
     return null
   }
 
@@ -217,7 +202,24 @@ export default function SupervisorProjectIdeas() {
     }
   }
 
-  const ProjectCard = ({ project }: { project: any }) => {
+  const getDepartmentLabel = (project: AnyDoc) => {
+    // ✅ الأفضل: المخزن داخل الوثيقة
+    if (project.departmentNameAr || project.departmentNameEn) return project.departmentNameAr || project.departmentNameEn
+
+    // ✅ fallback: من قائمة الأقسام
+    const depId = project.departmentId || project.department
+    const dep = departments.find((d) => d.id === depId)
+    if (dep) return dep.nameAr || dep.name || dep.nameEn
+
+    // ✅ fallback: لو كان مخزن كـ code
+    const depCode = project.departmentCode || project.department
+    const dep2 = departments.find((d) => d.code === depCode || d.departmentCode === depCode)
+    if (dep2) return dep2.nameAr || dep2.name || dep2.nameEn
+
+    return "غير محدد"
+  }
+
+  const ProjectCard = ({ project }: { project: AnyDoc }) => {
     const badge = getStatusBadge(project.status)
     const takenInfo = getTakenInfo(project)
 
@@ -232,7 +234,6 @@ export default function SupervisorProjectIdeas() {
               </CardTitle>
               <CardDescription className="mt-2 line-clamp-2">{project.description}</CardDescription>
             </div>
-
             <Badge variant={badge.variant} className="rounded-lg shrink-0">
               {badge.label}
             </Badge>
@@ -243,9 +244,7 @@ export default function SupervisorProjectIdeas() {
           <div className="grid gap-2 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">القسم:</span>
-              <span className="font-medium">
-                {departments.find((dep) => dep.id === project.department)?.name || "غير محدد"}
-              </span>
+              <span className="font-medium">{getDepartmentLabel(project)}</span>
             </div>
 
             <div className="flex items-center justify-between">
@@ -258,7 +257,6 @@ export default function SupervisorProjectIdeas() {
               <span className="font-medium">{formatDate(project.submittedAt)}</span>
             </div>
 
-            {/* ✅ إذا مأخوذة: اعرض الطالب بشكل مرتب */}
             {project.status === "taken" && takenInfo && (
               <>
                 <div className="flex items-center justify-between">
@@ -342,7 +340,6 @@ export default function SupervisorProjectIdeas() {
           </div>
         ) : (
           <>
-            {/* ✅ Stats */}
             <div className="grid gap-6 md:grid-cols-3">
               <Card className="border-2 border-blue-200 dark:border-blue-900 bg-gradient-to-br from-blue-50/50 to-background dark:from-blue-950/10">
                 <CardHeader>
@@ -390,7 +387,6 @@ export default function SupervisorProjectIdeas() {
               </Card>
             </div>
 
-            {/* ✅ List */}
             {allMyIdeas.length === 0 ? (
               <Card className="border-dashed">
                 <CardContent className="flex flex-col items-center justify-center py-16">
@@ -404,11 +400,7 @@ export default function SupervisorProjectIdeas() {
                 <h2 className="text-2xl font-bold mb-4">أفكاري</h2>
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                   {allMyIdeas.map((project, index) => (
-                    <div
-                      key={project.id}
-                      className="animate-in fade-in slide-in-from-bottom duration-500"
-                      style={{ animationDelay: `${index * 80}ms` }}
-                    >
+                    <div key={project.id} className="animate-in fade-in slide-in-from-bottom duration-500" style={{ animationDelay: `${index * 80}ms` }}>
                       <ProjectCard project={project} />
                     </div>
                   ))}
@@ -481,7 +473,7 @@ export default function SupervisorProjectIdeas() {
 
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="projectType">خيار المشروع *</Label>
+                <Label>خيار المشروع *</Label>
                 <Select value={formData.projectType} onValueChange={(v) => setFormData({ ...formData, projectType: v })}>
                   <SelectTrigger className="rounded-lg">
                     <SelectValue placeholder="اختر خيار المشروع" />
@@ -494,14 +486,19 @@ export default function SupervisorProjectIdeas() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="department">القسم *</Label>
-                <Input
-                  id="department"
-                  value={formData.department}
-                  onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                  placeholder="اكتب اسم القسم"
-                  className="rounded-lg"
-                />
+                <Label>القسم *</Label>
+                <Select value={formData.departmentId} onValueChange={(v) => setFormData({ ...formData, departmentId: v })}>
+                  <SelectTrigger className="rounded-lg">
+                    <SelectValue placeholder="اختر القسم" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-lg">
+                    {departments.map((dep) => (
+                      <SelectItem key={dep.id} value={dep.id}>
+                        {dep.nameAr || dep.name || dep.nameEn} {dep.code ? `(${dep.code})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
@@ -534,7 +531,7 @@ export default function SupervisorProjectIdeas() {
               <p className="text-sm text-muted-foreground leading-relaxed">{selectedProject?.description}</p>
             </div>
 
-            {selectedProject?.objectives && selectedProject.objectives.length > 0 && (
+            {Array.isArray(selectedProject?.objectives) && selectedProject.objectives.length > 0 && (
               <div>
                 <h4 className="font-semibold mb-2 text-lg">الأهداف:</h4>
                 <ul className="space-y-2">
@@ -548,7 +545,7 @@ export default function SupervisorProjectIdeas() {
               </div>
             )}
 
-            {selectedProject?.technologies && selectedProject.technologies.length > 0 && (
+            {Array.isArray(selectedProject?.technologies) && selectedProject.technologies.length > 0 && (
               <div>
                 <h4 className="font-semibold mb-2 text-lg">التقنيات المستخدمة:</h4>
                 <div className="flex flex-wrap gap-2">
@@ -564,9 +561,7 @@ export default function SupervisorProjectIdeas() {
             <div className="grid md:grid-cols-2 gap-4">
               <div className="p-4 bg-muted/50 rounded-lg">
                 <p className="text-sm text-muted-foreground mb-1">القسم</p>
-                <p className="font-semibold">
-                  {departments.find((dep) => dep.id === selectedProject?.department)?.name || "غير محدد"}
-                </p>
+                <p className="font-semibold">{selectedProject ? getDepartmentLabel(selectedProject) : "غير محدد"}</p>
               </div>
 
               <div className="p-4 bg-muted/50 rounded-lg">
@@ -578,14 +573,6 @@ export default function SupervisorProjectIdeas() {
                 <p className="text-sm text-muted-foreground mb-1">تاريخ الطرح</p>
                 <p className="font-semibold">{formatDate(selectedProject?.submittedAt)}</p>
               </div>
-
-              {selectedProject?.status === "taken" && (
-                <div className="p-4 bg-muted/50 rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">تم أخذها بواسطة</p>
-                  <p className="font-semibold">{selectedProject?.takenByName || "غير محدد"}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{selectedProject?.takenByEmail}</p>
-                </div>
-              )}
             </div>
 
             {selectedProject?.status === "rejected" && selectedProject.rejectionReason && (
