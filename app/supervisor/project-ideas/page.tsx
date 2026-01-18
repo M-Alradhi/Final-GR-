@@ -30,14 +30,14 @@ export default function SupervisorProjectIdeas() {
 
   const [departments, setDepartments] = useState<AnyDoc[]>([])
 
-  // ✅ خزّنا departmentId بدل كتابة نص
+  
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     objectives: "",
     technologies: "",
     projectType: "",
-    departmentId: "", // ✅ doc id
+    departmentId: "", 
   })
 
   const fetchDepartments = async () => {
@@ -52,7 +52,6 @@ export default function SupervisorProjectIdeas() {
     }
   }
 
-  // ✅ جيب كل أفكار المشرف (بدون فلترة status)
   const fetchProjectIdeas = async () => {
     if (!userData?.uid) return
     try {
@@ -80,7 +79,7 @@ export default function SupervisorProjectIdeas() {
       fetchProjectIdeas()
       fetchDepartments()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [userData?.uid])
 
   const handleSubmitIdea = async () => {
@@ -101,7 +100,7 @@ export default function SupervisorProjectIdeas() {
       const objectivesArray = formData.objectives.split("\n").map((x) => x.trim()).filter(Boolean)
       const technologiesArray = formData.technologies.split(",").map((x) => x.trim()).filter(Boolean)
 
-      // ✅ نخزن معلومات القسم صح
+  
       await addDoc(collection(db, "projectIdeas"), {
         title: formData.title,
         description: formData.description,
@@ -203,15 +202,15 @@ export default function SupervisorProjectIdeas() {
   }
 
   const getDepartmentLabel = (project: AnyDoc) => {
-    // ✅ الأفضل: المخزن داخل الوثيقة
+    
     if (project.departmentNameAr || project.departmentNameEn) return project.departmentNameAr || project.departmentNameEn
 
-    // ✅ fallback: من قائمة الأقسام
+    
     const depId = project.departmentId || project.department
     const dep = departments.find((d) => d.id === depId)
     if (dep) return dep.nameAr || dep.name || dep.nameEn
 
-    // ✅ fallback: لو كان مخزن كـ code
+    
     const depCode = project.departmentCode || project.department
     const dep2 = departments.find((d) => d.code === depCode || d.departmentCode === depCode)
     if (dep2) return dep2.nameAr || dep2.name || dep2.nameEn
