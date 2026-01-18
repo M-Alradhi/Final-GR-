@@ -6,16 +6,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useEffect, useState } from "react"
-import { collection, getDocs, query, where, updateDoc, doc, setDoc, getDoc, Timestamp } from "firebase/firestore"
-import { db } from "@/lib/firebase/config"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  collection,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  doc,
+  setDoc,
+  getDoc,
+  Timestamp,
+} from "firebase/firestore"
+import { db } from "@/lib/firebase/config"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
@@ -25,21 +28,23 @@ import { createUserWithEmailAndPassword } from "firebase/auth"
 import { auth } from "@/lib/firebase/config"
 import { coordinatorSidebarItems } from "@/lib/constants/coordinator-sidebar"
 
+type AnyDoc = Record<string, any>
+
 export default function CoordinatorStudents() {
   const { loading: authLoading } = useAuth()
-  const [students, setStudents] = useState<any[]>([])
-  const [supervisors, setSupervisors] = useState<any[]>([])
+  const [students, setStudents] = useState<AnyDoc[]>([])
+  const [supervisors, setSupervisors] = useState<AnyDoc[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedStudent, setSelectedStudent] = useState<any>(null)
+  const [selectedStudent, setSelectedStudent] = useState<AnyDoc | null>(null)
   const [selectedSupervisorId, setSelectedSupervisorId] = useState("")
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false)
   const [isAddStudentDialogOpen, setIsAddStudentDialogOpen] = useState(false)
-  const [departments, setDepartments] = useState<any[]>([])
+  const [departments, setDepartments] = useState<AnyDoc[]>([])
   const [newStudent, setNewStudent] = useState({
     name: "",
     email: "",
     password: "",
-    studentId: "",
+    studentId: "", // رقم جامعي
     department: "",
     phone: "",
   })
@@ -55,15 +60,15 @@ export default function CoordinatorStudents() {
 
       const studentsQuery = query(collection(db, "users"), where("role", "==", "student"))
       const studentsSnapshot = await getDocs(studentsQuery)
-      const studentsData = studentsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const studentsData = studentsSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
 
       const supervisorsQuery = query(collection(db, "users"), where("role", "==", "supervisor"))
       const supervisorsSnapshot = await getDocs(supervisorsQuery)
-      const supervisorsData = supervisorsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const supervisorsData = supervisorsSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
 
       const departmentsQuery = query(collection(db, "departments"), where("isActive", "==", true))
       const departmentsSnapshot = await getDocs(departmentsQuery)
-      const departmentsData = departmentsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const departmentsData = departmentsSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
       setDepartments(departmentsData)
 
       const supervisorsWithCounts = await Promise.all(
@@ -86,6 +91,33 @@ export default function CoordinatorStudents() {
   useEffect(() => {
     fetchData()
   }, [])
+
+  // ✅ Helper: get real Firebase UID for a team member object (by email OR university studentId)
+  const resolveUserUidFromMember = async (member: any): Promise<string | null> => {
+    try {
+      const email = typeof member?.email === "string" ? member.email.trim().toLowerCase() : ""
+      const uniStudentId = typeof member?.studentId === "string" ? member.studentId.trim() : ""
+
+      // 1) Try by email
+      if (email) {
+        const q1 = query(collection(db, "users"), where("email", "==", email))
+        const snap1 = await getDocs(q1)
+        if (!snap1.empty) return snap1.docs[0].id
+      }
+
+      // 2) Try by university studentId (field name in users is also studentId)
+      if (uniStudentId) {
+        const q2 = query(collection(db, "users"), where("studentId", "==", uniStudentId))
+        const snap2 = await getDocs(q2)
+        if (!snap2.empty) return snap2.docs[0].id
+      }
+
+      return null
+    } catch (e) {
+      console.error("resolveUserUidFromMember error:", e)
+      return null
+    }
+  }
 
   const handleAssignSupervisor = async () => {
     if (!selectedStudent || !selectedSupervisorId) {
@@ -111,30 +143,57 @@ export default function CoordinatorStudents() {
     try {
       const supervisorToApply = pendingSupervisorId || selectedSupervisorId
 
+      // ✅ Update selected student's supervisor
       await updateDoc(doc(db, "users", selectedStudent.id), {
         supervisorId: supervisorToApply,
-        updatedAt: new Date(),
+        updatedAt: Timestamp.now(),
       })
 
+      // ✅ If student has project, update project + team members users
       if (selectedStudent.projectId) {
-        const projectDoc = await getDoc(doc(db, "projects", selectedStudent.projectId))
+        const projectRef = doc(db, "projects", selectedStudent.projectId)
+        const projectDoc = await getDoc(projectRef)
+
         if (projectDoc.exists()) {
           const projectData: any = projectDoc.data()
 
-          await updateDoc(doc(db, "projects", selectedStudent.projectId), {
+          // Update project supervisor
+          await updateDoc(projectRef, {
             supervisorId: supervisorToApply,
             updatedAt: Timestamp.now(),
           })
 
-          if (projectData.teamMembers && Array.isArray(projectData.teamMembers)) {
-            const updatePromises = projectData.teamMembers.map((memberId: string) =>
-              updateDoc(doc(db, "users", memberId), {
-                supervisorId: supervisorToApply,
-                updatedAt: new Date(),
-              }),
-            )
-            await Promise.all(updatePromises)
+          // ✅ FIX: teamMembers are OBJECTS (not UIDs). Resolve each to real user uid then update users docs.
+          const rawMembers = projectData.teamMembers
+
+          if (Array.isArray(rawMembers) && rawMembers.length > 0) {
+            const resolvedUids: string[] = []
+
+            for (const m of rawMembers) {
+              const uid = await resolveUserUidFromMember(m)
+              if (uid) resolvedUids.push(uid)
+            }
+
+            // remove duplicates
+            const uniqueUids = Array.from(new Set(resolvedUids))
+
+            if (uniqueUids.length > 0) {
+              await Promise.all(
+                uniqueUids.map((uid) =>
+                  // ✅ use setDoc merge to avoid "No document to update" if a doc is missing for any reason
+                  setDoc(
+                    doc(db, "users", uid),
+                    { supervisorId: supervisorToApply, updatedAt: Timestamp.now() },
+                    { merge: true },
+                  ),
+                ),
+              )
+            } else {
+              console.warn("No team member UIDs resolved from teamMembers:", rawMembers)
+            }
           }
+        } else {
+          console.warn("Project not found:", selectedStudent.projectId)
         }
       }
 
@@ -172,13 +231,13 @@ export default function CoordinatorStudents() {
       await setDoc(doc(db, "users", userCredential.user.uid), {
         uid: userCredential.user.uid,
         name: newStudent.name,
-        email: newStudent.email,
-        studentId: newStudent.studentId,
+        email: newStudent.email.trim().toLowerCase(),
+        studentId: newStudent.studentId, // رقم جامعي
         department: newStudent.department,
         phone: newStudent.phone,
         role: "student",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
       })
 
       toast.success("تم إضافة الطالب بنجاح")
@@ -202,7 +261,7 @@ export default function CoordinatorStudents() {
     }
   }
 
-  const openAssignDialog = (student: any) => {
+  const openAssignDialog = (student: AnyDoc) => {
     setSelectedStudent(student)
     setSelectedSupervisorId(student.supervisorId || "")
     setIsAssignDialogOpen(true)
@@ -306,7 +365,9 @@ export default function CoordinatorStudents() {
                         <div className="flex items-center gap-2 text-sm">
                           <span className="text-muted-foreground">القسم:</span>
                           <span>
-                            {departments.find((d) => d.code === student.department)?.name || student.department || "غير محدد"}
+                            {departments.find((d) => d.code === student.department)?.name ||
+                              student.department ||
+                              "غير محدد"}
                           </span>
                         </div>
                         {supervisor && (
@@ -336,6 +397,7 @@ export default function CoordinatorStudents() {
           </Card>
         )}
 
+        {/* Assign Dialog */}
         <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
           <DialogContent className="rounded-xl">
             <DialogHeader>
@@ -361,6 +423,7 @@ export default function CoordinatorStudents() {
                   </SelectContent>
                 </Select>
               </div>
+
               {selectedSupervisorId && (
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-sm text-muted-foreground">
@@ -399,6 +462,7 @@ export default function CoordinatorStudents() {
           </DialogContent>
         </Dialog>
 
+        {/* Confirm Change Dialog */}
         <Dialog open={isConfirmChangeOpen} onOpenChange={setIsConfirmChangeOpen}>
           <DialogContent className="rounded-xl">
             <DialogHeader>
@@ -450,6 +514,7 @@ export default function CoordinatorStudents() {
           </DialogContent>
         </Dialog>
 
+        {/* Add Student Dialog */}
         <Dialog open={isAddStudentDialogOpen} onOpenChange={setIsAddStudentDialogOpen}>
           <DialogContent className="rounded-xl max-w-md">
             <DialogHeader>
@@ -496,9 +561,13 @@ export default function CoordinatorStudents() {
                   className="rounded-lg"
                 />
               </div>
+
               <div>
                 <Label>القسم *</Label>
-                <Select value={newStudent.department} onValueChange={(value) => setNewStudent({ ...newStudent, department: value })}>
+                <Select
+                  value={newStudent.department}
+                  onValueChange={(value) => setNewStudent({ ...newStudent, department: value })}
+                >
                   <SelectTrigger className="rounded-lg border-2">
                     <SelectValue placeholder="اختر القسم">
                       {newStudent.department && departments.length > 0 ? (
@@ -528,6 +597,7 @@ export default function CoordinatorStudents() {
                     )}
                   </SelectContent>
                 </Select>
+
                 {newStudent.department && departments.length > 0 && (
                   <p className="text-xs text-muted-foreground mt-1">
                     القسم المختار:{" "}
@@ -537,6 +607,7 @@ export default function CoordinatorStudents() {
                   </p>
                 )}
               </div>
+
               <div>
                 <Label>رقم الهاتف *</Label>
                 <Input
