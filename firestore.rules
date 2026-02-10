@@ -1,0 +1,178 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    function isStudent() {
+      return isAuthenticated() && getUserRole() == 'student';
+    }
+    
+    function isSupervisor() {
+      return isAuthenticated() && getUserRole() == 'supervisor';
+    }
+    
+    function isCoordinator() {
+      return isAuthenticated() && getUserRole() == 'coordinator';
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+
+    // Departments collection
+    match /departments/{departmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isCoordinator() || isAdmin();
+      allow update: if isCoordinator() || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (isOwner(userId) || isCoordinator() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Projects collection
+    match /projects/{projectId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow update: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow delete: if isCoordinator() || isAdmin();
+    }
+
+    // Announcements collection
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow update: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow delete: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Discussions collection
+    match /discussions/{discussionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Replies collection
+    match /replies/{replyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isOwner(resource.data.authorId);
+      allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Meeting requests collection (students send requests to supervisors)
+    match /meeting_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        isSupervisor() || isCoordinator() || isAdmin() ||
+        request.auth.uid == resource.data?.studentId || request.auth.uid == resource.data?.supervisorId
+      );
+      allow create: if isAuthenticated() && isStudent();
+      allow update: if isAuthenticated() && (
+        request.auth.uid == resource.data?.studentId || isSupervisor() || isCoordinator() || isAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        request.auth.uid == resource.data?.studentId || isSupervisor() || isCoordinator() || isAdmin()
+      );
+    }
+
+    // Files collection
+    match /files/{fileId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (isOwner(resource.data.uploadedBy) || isSupervisor() || isCoordinator() || isAdmin());
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uploadedBy) || isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Tasks collection
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Meetings collection
+    match /meetings/{meetingId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Evaluations/Grades collection
+    match /evaluations/{evaluationId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow update: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow delete: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Grades collection
+    match /grades/{gradeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow update: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+      allow delete: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Notifications collection
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Messages collection
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.senderId ||
+        request.auth.uid == resource.data.receiverId
+      );
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        request.auth.uid == resource.data.senderId ||
+        request.auth.uid == resource.data.receiverId
+      );
+      allow delete: if isAuthenticated() && (
+        request.auth.uid == resource.data.senderId ||
+        isSupervisor() || isCoordinator() || isAdmin()
+      );
+    }
+
+    // Project Ideas collection
+    match /projectIdeas/{ideaId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isStudent() || isSupervisor() || isCoordinator() || isAdmin());
+      allow update: if isAuthenticated() && (isStudent() || isSupervisor() || isCoordinator() || isAdmin());
+      allow delete: if isAuthenticated() && (isSupervisor() || isCoordinator() || isAdmin());
+    }
+
+    // Reports collection
+    match /reports/{reportId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isCoordinator() || isAdmin());
+      allow update: if isAuthenticated() && (isCoordinator() || isAdmin());
+      allow delete: if isAuthenticated() && (isCoordinator() || isAdmin());
+    }
+  }
+}
