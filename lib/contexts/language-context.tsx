@@ -965,6 +965,8 @@ const translations: Record<Language, Record<string, string>> = {
       //file upload page
       pleaseChoosePicOnly:"يرجى اختيار ملفات صور فقط (JPG, PNG, GIF, etc.)",
       unknowError:"خطأ غير معروف",
+
+      
     },
 
   en: {

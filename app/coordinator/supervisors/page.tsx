@@ -506,16 +506,18 @@ export default function CoordinatorSupervisors() {
                 {students.map((student) => (
                   <Card key={student.id} className="rounded-xl">
                     <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
+                        <div className="flex flex-col items-center gap-2 text-center">
                           <CardTitle>{student.name}</CardTitle>
-                          <CardDescription className="mt-1">{student.studentId}</CardDescription>
+                          <CardDescription>{student.studentId}</CardDescription>
+                          <Badge
+                            variant="secondary"
+                            className="rounded-lg px-3 py-1 whitespace-normal break-words max-w-[140px] text-center"
+                          >
+                            {getDepartmentName(student.department, departments)}
+                          </Badge>
                         </div>
-                        <Badge variant="secondary" className="rounded-lg">
-                          {getDepartmentName(student.department, departments)}
-                        </Badge>
-                      </div>
-                    </CardHeader>
+                      </CardHeader>
+
                     <CardContent className="space-y-3">
                       <div className="flex items-center gap-2 text-sm">
                         <Bell className="w-4 h-4 text-muted-foreground" />
