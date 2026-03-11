@@ -45,13 +45,13 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 
 const sidebarItems = [
-  { title: "لوحة التحكم", href: "/student/dashboard", icon: <Home className="w-5 h-5" /> },
-  { title: "الملف الشخصي", href: "/student/profile", icon: <User className="w-5 h-5" /> },
-  { title: "مشروعي", href: "/student/project", icon: <FolderKanban className="w-5 h-5" /> },
-  { title: "المهام", href: "/student/tasks", icon: <CheckSquare className="w-5 h-5" /> },
-  { title: "الاجتماعات", href: "/student/meetings", icon: <Calendar className="w-5 h-5" /> },
-  { title: "النقاشات", href: "/student/discussions", icon: <MessageCircle className="w-5 h-5" /> },
-  { title: "الإشعارات", href: "/student/notifications", icon: <Bell className="w-5 h-5" /> },
+  { title: "dashboard", href: "/student/dashboard", icon: <Home className="w-5 h-5" /> },
+  { title: "profile", href: "/student/profile", icon: <User className="w-5 h-5" /> },
+  { title: "project", href: "/student/project", icon: <FolderKanban className="w-5 h-5" /> },
+  { title: "tasks", href: "/student/tasks", icon: <CheckSquare className="w-5 h-5" /> },
+  { title: "meetings", href: "/student/meetings", icon: <Calendar className="w-5 h-5" /> },
+  { title: "discussions", href: "/student/discussions", icon: <MessageCircle className="w-5 h-5" /> },
+  { title: "notifications", href: "/student/notifications", icon: <Bell className="w-5 h-5" /> },
 ]
 
 interface Discussion {
@@ -85,16 +85,7 @@ export default function DiscussionDetail() {
   const discussionId = params.id as string
   const { userData, loading: authLoading } = useAuth()
   const { t } = useLanguage()
-  const [stats, setStats] = useState({
-    totalProjects: 0,
-    activeProjects: 0,
-    completedProjects: 0,
-    totalSupervisors: 0,
-    totalStudents: 0,
-    averageProgress: 0,
-    projectsNeedingAttention: 0,
-  })
-  const [discussion, setDiscussion] = useState<Discussion | null>(null)
+  const [discussion, setDiscussion] = useState<Discussion | null | undefined>(undefined)
   const [replies, setReplies] = useState<Reply[]>([])
   const [loading, setLoading] = useState(true)
   const [replyContent, setReplyContent] = useState("")
@@ -115,6 +106,8 @@ export default function DiscussionDetail() {
       const discussionDoc = await getDoc(doc(db, "discussions", discussionId))
       if (discussionDoc.exists()) {
         setDiscussion({ id: discussionDoc.id, ...discussionDoc.data() } as Discussion)
+      } else {
+        setDiscussion(null) // موجود لكن ما فيه بيانات
       }
 
       // Fetch replies
@@ -253,7 +246,7 @@ export default function DiscussionDetail() {
           <h1 className="text-2xl font-bold"> {t("discussionDetails")}</h1>
         </div>
 
-        {loading ? (
+        {loading || discussion === undefined ? (
           <Card>
             <CardHeader>
               <Skeleton className="h-8 w-3/4" />
@@ -263,7 +256,7 @@ export default function DiscussionDetail() {
               <Skeleton className="h-32 w-full" />
             </CardContent>
           </Card>
-        ) : !discussion ? (
+        ) : discussion === null ? (
           <Card>
             <CardContent className="py-16 text-center">
               <p className="text-muted-foreground">{t("discussionNotFound")}</p>
@@ -285,13 +278,13 @@ export default function DiscussionDetail() {
                       {discussion.isPinned && (
                         <Badge variant="default" className="gap-1">
                           <Pin className="w-3 h-3" />
-                          مثبت
+                          {t("pinned")}
                         </Badge>
                       )}
                       {discussion.isClosed && (
                         <Badge variant="secondary" className="gap-1">
                           <Lock className="w-3 h-3" />
-                          مغلق
+                          {t("closed")}
                         </Badge>
                       )}
                       {discussion.tags.map((tag) => (
@@ -327,7 +320,7 @@ export default function DiscussionDetail() {
                   </Button>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <MessageCircle className="w-4 h-4" />
-                    <span>{discussion.repliesCount} رد</span>
+                    <span>{discussion.repliesCount} {t("reply")}</span>
                   </div>
                 </div>
               </CardContent>
@@ -338,14 +331,14 @@ export default function DiscussionDetail() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <MessageCircle className="w-5 h-5" />
-                  الردود ({replies.length})
+                  {t("replies")} ({replies.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
                 {replies.length === 0 ? (
                   <div className="text-center py-8">
                     <MessageCircle className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground">لا توجد ردود بعد. كن أول من يرد!</p>
+                    <p className="text-sm text-muted-foreground">{t("noRepliesYet")}</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -392,14 +385,14 @@ export default function DiscussionDetail() {
                     <Textarea
                       value={replyContent}
                       onChange={(e) => setReplyContent(e.target.value)}
-                      placeholder="اكتب ردك هنا..."
+                      placeholder={t("replyPlaceholder")}
                       rows={4}
                       disabled={sending}
                     />
                     <div className="flex justify-end">
                       <Button type="submit" disabled={!replyContent.trim() || sending} className="gap-2">
                         <Send className="w-4 h-4" />
-                        إرسال الرد
+                          {t("sendReply")}
                       </Button>
                     </div>
                   </form>
@@ -408,7 +401,7 @@ export default function DiscussionDetail() {
                 {discussion.isClosed && (
                   <div className="text-center py-4 text-sm text-muted-foreground">
                     <Lock className="w-8 h-8 mx-auto mb-2" />
-                    <p>هذا النقاش مغلق ولا يمكن إضافة ردود جديدة</p>
+                    <p>{t("closedDiscussion")}</p>
                   </div>
                 )}
               </CardContent>
